@@ -55,8 +55,9 @@ class _NotesParser(HTMLParser):
                 self._timestamp = f'{h:02d}:{mi:02d}:{s:02d}' if h else f'{mi:02d}:{s:02d}'
         elif tag == 'p':
             text = self._p_text.strip()
-            if text.startswith('## '):
-                name = text[3:].strip()
+            m = re.match(r'^#{1,6}\s+(.+)', text)
+            if m:
+                name = m.group(1).strip()
                 self._section = name
                 self.sections.setdefault(name, [])
             elif self._timestamp is not None and self._section is not None and text:
