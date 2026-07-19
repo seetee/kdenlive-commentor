@@ -26,12 +26,13 @@ canonical skeleton:
     **Trailer:**
 
     #### Noteworthy
-    #### Other comments without a home
     #### Bryggpromenader        (only when the episode has such notes)
 
-Notes typed without a section heading in Kdenlive's Document Notes panel land
-under "Other comments without a home".  A Bryggpromenader section gets an
-auto-counted tally (Joel/Robin/Henrik/Kenneth, from tokens like "H+1").
+Notes typed without a section heading in Kdenlive's Document Notes panel are
+appended to the end of "Noteworthy" after a blank line.  A Bryggpromenader
+section gets an auto-counted tally (Joel/Robin/Henrik/Kenneth, from tokens
+like "H+1").  Metadata lines written without bold markers ("Titel: …") are
+normalized in place to the bold form.
 
 Only script-managed lines are ever rewritten: the '* ' bullets of sections
 that have incoming notes, the Bryggpromenader tally, and the '* Kdenlive …'
@@ -283,6 +284,15 @@ def _ensure_episode(root: _Block, info: _Block, name: str) -> _Block:
 
 
 def _ensure_metadata(episode: _Block) -> None:
+    # Normalize unbolded metadata lines ("Titel: x") to the bold form in place.
+    for i, line in enumerate(episode.lines):
+        for field in METADATA_FIELDS:
+            m = re.match(rf'^{re.escape(field)}\s*:\s*(.*?)\s*$', line)
+            if m:
+                value = m.group(1)
+                episode.lines[i] = f'**{field}:** {value}\n' if value else f'**{field}:**\n'
+                break
+
     present = set()
     last_meta = None
     for i, line in enumerate(episode.lines):
@@ -336,20 +346,45 @@ def _tally(entries: list[tuple[str, str]]) -> list[tuple[str, int]]:
     return [(full, counts[full]) for _, full in TALLY_NAMES]
 
 
+def _bullet(entry: tuple[str, str]) -> str:
+    ts, text = entry
+    return f'* {ts} {text}' if ts else f'* {text}'
+
+
 def _set_bullets(section: _Block, bullets: list[str],
-                 tally: list[tuple[str, int]] | None = None) -> None:
+                 tally: list[tuple[str, int]] | None = None,
+                 appendix: list[str] | None = None) -> None:
     """Replace the managed lines of a section, keeping hand-written extras."""
     extra = [
         l for l in section.lines
         if l.strip() and not l.startswith('* ') and not _TALLY_LINE_RE.match(l)
     ]
     lines = [f'{b}\n' for b in bullets]
+    if appendix:
+        lines += ['\n'] + [f'{b}\n' for b in appendix]
     if tally is not None:
         lines += ['\n'] + [f'{name}: {count}\n' for name, count in tally]
     if extra:
         lines += ['\n'] + extra
     lines.append('\n')
     section.lines = lines
+
+
+def _prune_orphan_section(episode: _Block, incoming_bullets: set[str]) -> None:
+    """
+    Drop a legacy 'Other comments without a home' section when it is empty or
+    contains nothing but bullets now emitted at the end of Noteworthy.  A
+    section holding any other hand-written content is left untouched.
+    """
+    for i, child in enumerate(episode.children):
+        if child.title == ORPHAN_SECTION and not child.children:
+            leftover = [
+                l for l in child.lines
+                if l.strip() and l.strip() not in incoming_bullets
+            ]
+            if not leftover:
+                del episode.children[i]
+            return
 
 
 def _update_software(software: _Block, version: str | None) -> None:
@@ -435,7 +470,7 @@ def process_session(session_dir: Path) -> None:
         episode = _ensure_episode(root, info, name)
         _ensure_metadata(episode)
         _ensure_section(episode, 'Noteworthy')
-        _ensure_section(episode, ORPHAN_SECTION)
+        _prune_orphan_section(episode, set())
 
         try:
             notes, version = _extract_project(ep_dir / f'{name}.kdenlive')
@@ -444,16 +479,31 @@ def process_session(session_dir: Path) -> None:
             continue
         kdenlive_version = version or kdenlive_version
 
-        if notes:
+        orphans = notes.pop(ORPHAN_SECTION, [])
+        orphan_bullets = [_bullet(e) for e in orphans]
+        _prune_orphan_section(episode, set(orphan_bullets))
+
+        if notes or orphans:
             # Naked bullets directly under the episode heading are leftovers
             # from the pre-section format; the structured sections replace them.
             episode.lines = [l for l in episode.lines if not l.startswith('* ')]
+            if orphans:
+                notes.setdefault('Noteworthy', [])
             for section_name, entries in notes.items():
                 section = _ensure_section(episode, section_name)
-                bullets = [f'* {ts} {text}' if ts else f'* {text}' for ts, text in entries]
+                bullets = [_bullet(e) for e in entries]
+                appendix = None
+                if section_name == 'Noteworthy' and orphan_bullets:
+                    if bullets:
+                        appendix = orphan_bullets
+                    else:
+                        bullets = orphan_bullets
                 tally = _tally(entries) if section_name == BRYGG_SECTION else None
-                _set_bullets(section, bullets, tally)
-            summary = ', '.join(f'{s} ({len(e)})' for s, e in notes.items())
+                _set_bullets(section, bullets, tally, appendix)
+            counts = {s: len(e) for s, e in notes.items()}
+            if orphans:
+                counts['Noteworthy'] += len(orphans)
+            summary = ', '.join(f'{s} ({n})' for s, n in counts.items())
             print(f'  {name}: {summary}')
         else:
             print(f'  {name}: no notes')

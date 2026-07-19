@@ -85,11 +85,11 @@ class BootstrapTests(unittest.TestCase):
                 '#### Noteworthy',
                 '* 03:12 Earlier moment -j',
                 '* 06:29 A memorable quote -h',
-                '#### Other comments without a home',
             ]
             positions = [out.index(s) for s in expected_order]
             self.assertEqual(positions, sorted(positions))
             self.assertNotIn('#### Bryggpromenader', out)
+            self.assertNotIn('#### Other comments without a home', out)
 
     def test_hour_timestamps_keep_hours(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -162,6 +162,60 @@ class RepairTests(unittest.TestCase):
             for field in ('Blurb (large)', 'Blurb (short)', 'Trailer'):
                 self.assertIn(f'**{field}:**', out)
 
+    def test_unbolded_metadata_gets_stars_without_duplication(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', NOTEWORTHY)
+            t.md.write_text(
+                '# Session 26 - 2025-06-30\n\n'
+                '## Avsnittsinfo\n\n'
+                '### avsnitt207\n\n'
+                'Titel: Min titel\n'
+                'Blurb (large): Lång text\n'
+                'Trailer:\n\n',
+                encoding='utf-8',
+            )
+            out = t.run()
+            self.assertIn('**Titel:** Min titel', out)
+            self.assertIn('**Blurb (large):** Lång text', out)
+            self.assertIn('**Trailer:**', out)
+            self.assertEqual(out.count('Titel:'), 1)
+            self.assertEqual(out.count('Blurb (large):'), 1)
+            self.assertEqual(out.count('Trailer:'), 1)
+
+    def test_empty_orphan_section_removed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', NOTEWORTHY)
+            t.md.write_text(
+                '# Session 26 - 2025-06-30\n\n'
+                '## Avsnittsinfo\n\n'
+                '### avsnitt207\n\n'
+                '**Titel:** X\n\n'
+                '#### Noteworthy\n\n'
+                '#### Other comments without a home\n\n',
+                encoding='utf-8',
+            )
+            out = t.run()
+            self.assertNotIn('#### Other comments without a home', out)
+
+    def test_stale_orphan_bullets_migrated_without_duplication(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', '<p>stray comment</p>' + NOTEWORTHY)
+            t.md.write_text(
+                '# Session 26 - 2025-06-30\n\n'
+                '## Avsnittsinfo\n\n'
+                '### avsnitt207\n\n'
+                '**Titel:** X\n\n'
+                '#### Other comments without a home\n'
+                '* stray comment\n\n',
+                encoding='utf-8',
+            )
+            out = t.run()
+            self.assertNotIn('#### Other comments without a home', out)
+            self.assertEqual(out.count('* stray comment'), 1)
+
     def test_missing_top_sections_added(self):
         with tempfile.TemporaryDirectory() as tmp:
             t = SessionTree(tmp)
@@ -206,6 +260,7 @@ class ContentPreservationTests(unittest.TestCase):
             )
             out = t.run()
             self.assertIn('* my own hand-written note', out)
+            self.assertIn('#### Other comments without a home', out)
 
     def test_old_bullets_replaced_when_notes_arrive(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -231,7 +286,7 @@ class ContentPreservationTests(unittest.TestCase):
                 + note('00:05:28:00', 'H+1')
                 + note('00:12:03:00', 'J+1')
             )
-            t.episode('avsnitt207', NOTEWORTHY + brygg)
+            t.episode('avsnitt207', '<p>stray orphan</p>' + NOTEWORTHY + brygg)
             first = t.run()
             second = t.run()
             self.assertEqual(first, second)
@@ -263,7 +318,7 @@ class BryggpromenadTests(unittest.TestCase):
 
 class ExtractionTests(unittest.TestCase):
 
-    def test_orphan_notes_get_a_home(self):
+    def test_orphan_notes_appended_to_noteworthy(self):
         with tempfile.TemporaryDirectory() as tmp:
             t = SessionTree(tmp)
             html = (
@@ -273,9 +328,24 @@ class ExtractionTests(unittest.TestCase):
             )
             t.episode('avsnitt207', html)
             out = t.run()
-            orphan_at = out.index('#### Other comments without a home')
-            self.assertIn('* 02:00 orphan with timestamp', out[orphan_at:])
-            self.assertIn('* plain stray comment', out[orphan_at:])
+            self.assertNotIn('#### Other comments without a home', out)
+            self.assertIn(
+                '#### Noteworthy\n'
+                '* 03:12 Earlier moment -j\n'
+                '* 06:29 A memorable quote -h\n'
+                '\n'
+                '* 02:00 orphan with timestamp\n'
+                '* plain stray comment\n',
+                out,
+            )
+
+    def test_orphans_alone_become_noteworthy_bullets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', '<p>only a stray comment</p>')
+            out = t.run()
+            self.assertNotIn('#### Other comments without a home', out)
+            self.assertIn('#### Noteworthy\n* only a stray comment\n', out)
 
     def test_malformed_kdenlive_does_not_abort_run(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -23,10 +23,11 @@ On every run it:
 * converts Kdenlive's internal timestamp format (`00:06:29:32`) to a clean
   `MM:SS` format (or `HH:MM:SS` past the hour) and sorts notes chronologically;
 * strips all the HTML that Kdenlive wraps around the notes;
-* files notes typed **without** a section heading under
-  `#### Other comments without a home`, so nothing is ever lost;
+* appends notes typed **without** a section heading to the end of
+  `#### Noteworthy` (after a blank line), so nothing is ever lost;
 * repairs the session file to the canonical skeleton (see below) — creating it
-  from scratch if it doesn't exist yet;
+  from scratch if it doesn't exist yet, and normalizing metadata lines written
+  without bold markers (`Titel: …` becomes `**Titel:** …` in place);
 * keeps the `* Kdenlive …` line under `## Mjukvaruversioner` up to date with
   the version read from the project files;
 * auto-counts the **Bryggpromenader** tally from `H+1`-style notes;
@@ -98,7 +99,6 @@ The script creates and maintains this skeleton:
 * 06:29 A memorable quote -h
 * 14:46 Something worth clipping -k
 
-#### Other comments without a home
 * a note typed without a section heading
 
 #### Bryggpromenader
@@ -111,11 +111,12 @@ Henrik: 1
 Kenneth: 0
 ```
 
-`Noteworthy` and `Other comments without a home` always exist for every
-episode. `Bryggpromenader` only appears when the episode actually has such
-notes, and its tally (counted from `J+1` / `R+1` / `H+1` / `K+1` tokens) is
-recomputed on every run. Any other section you create with a heading in
-Kdenlive's Document Notes panel becomes an additional `####` section.
+`Noteworthy` always exists for every episode; notes typed without a section
+heading are appended to its end after a blank line. `Bryggpromenader` only
+appears when the episode actually has such notes, and its tally (counted from
+`J+1` / `R+1` / `H+1` / `K+1` tokens) is recomputed on every run. Any other
+section you create with a heading in Kdenlive's Document Notes panel becomes
+an additional `####` section.
 
 Missing metadata fields and headings are added automatically; values you've
 already filled in are never touched.
