@@ -1,8 +1,9 @@
 # kdenlive-commentor
 
 [![Tests](https://github.com/seetee/kdenlive-commentor/actions/workflows/test.yml/badge.svg)](https://github.com/seetee/kdenlive-commentor/actions/workflows/test.yml)
-[![Vibe Coded](https://img.shields.io/badge/vibe-coded-blueviolet)](https://en.wikipedia.org/wiki/Vibe_coding)
-[![Built with Claude](https://img.shields.io/badge/built%20with-Claude-D97757)](https://claude.ai)
+[![vibe coded](https://img.shields.io/badge/vibe_coded-%E2%9C%A8-ff69b4?style=flat-square)](https://en.wikipedia.org/wiki/Vibe_coding)
+[![coded with Claude](https://img.shields.io/badge/coded_with-Claude_Code-CC785C?style=flat-square&logo=anthropic)](https://claude.ai/code)
+[![license: AGPL v3](https://img.shields.io/badge/license-AGPL_v3-blue?style=flat-square)](LICENSE)
 
 A small Python tool that pulls the timestamped notes you write during Kdenlive
 episode editing and drops them straight into your session's Markdown file — in
