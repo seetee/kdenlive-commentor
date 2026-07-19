@@ -58,6 +58,7 @@ recordings/
     ├── session_26_2025-06-30.md         ← session notes file (created if missing)
     ├── session_26_2025-06-30.kdenlive   ← main rough-cut project (not processed)
     ├── sources/                          ← raw recordings (not processed)
+    ├── kortisar/                         ← YouTube shorts & TikToks (not processed)
     ├── avsnitt207/
     │   ├── avsnitt207.kdenlive          ← episode project with notes ✓
     │   └── ...
@@ -116,9 +117,12 @@ Kenneth: 0
 #### Kapitel
 00:00 Äventyret börjar!
 05:28 Henrik tar en lång promenad på en kort brygga
-06:29 Grottan öppnas
+06:29 A memorable quote
 12:03 Joel tar en lång promenad på en kort brygga
 ```
+
+(The `06:29` chapter comes from starring the corresponding Noteworthy note —
+its `*` and the `-h` speaker token never reach the chapter title.)
 
 `Noteworthy` always exists for every episode; notes typed without a section
 heading are appended to its end after a blank line. `Bryggpromenader` only

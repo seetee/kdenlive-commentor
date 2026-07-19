@@ -52,6 +52,7 @@ import difflib
 import os
 import re
 import sys
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -201,17 +202,15 @@ def _extract_project(
 
 # ── Markdown document model ───────────────────────────────────────────────────
 
+@dataclass(slots=True)
 class _Block:
     """A heading and its content: verbatim body lines plus nested sub-blocks."""
 
-    __slots__ = ('level', 'title', 'heading_line', 'lines', 'children')
-
-    def __init__(self, level: int, title: str, heading_line: str | None = None):
-        self.level = level
-        self.title = title
-        self.heading_line = heading_line
-        self.lines: list[str] = []
-        self.children: list['_Block'] = []
+    level: int
+    title: str
+    heading_line: str | None = None
+    lines: list[str] = field(default_factory=list)
+    children: list['_Block'] = field(default_factory=list)
 
 
 def _parse(text: str) -> _Block:
@@ -329,11 +328,11 @@ def _ensure_episode(root: _Block, info: _Block, name: str) -> _Block:
 def _ensure_metadata(episode: _Block) -> None:
     # Normalize unbolded metadata lines ("Titel: x") to the bold form in place.
     for i, line in enumerate(episode.lines):
-        for field in METADATA_FIELDS:
-            m = re.match(rf'^{re.escape(field)}\s*:\s*(.*?)\s*$', line)
+        for name in METADATA_FIELDS:
+            m = re.match(rf'^{re.escape(name)}\s*:\s*(.*?)\s*$', line)
             if m:
                 value = m.group(1)
-                episode.lines[i] = f'**{field}:** {value}\n' if value else f'**{field}:**\n'
+                episode.lines[i] = f'**{name}:** {value}\n' if value else f'**{name}:**\n'
                 break
 
     present = set()
@@ -670,7 +669,7 @@ def process_session(session_dir: Path, dry_run: bool = False) -> int:
     else:
         created = not md.exists()
         if not created:
-            md.with_name(md.name + '.bak').write_text(original, encoding='utf-8')
+            _write_atomic(md.with_name(md.name + '.bak'), original)
         _write_atomic(md, updated)
         note = '' if created else ' (previous version in .bak)'
         print(f'  {"created" if created else "updated"} {md.name}{note}')
