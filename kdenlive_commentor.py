@@ -27,12 +27,19 @@ canonical skeleton:
 
     #### Noteworthy
     #### Bryggpromenader        (only when the episode has such notes)
+    #### Kapitel                (only when the episode has chapters)
 
 Notes typed without a section heading in Kdenlive's Document Notes panel are
 appended to the end of "Noteworthy" after a blank line.  A Bryggpromenader
 section gets an auto-counted tally (Joel/Robin/Henrik/Kenneth, from tokens
 like "H+1").  Metadata lines written without bold markers ("Titel: …") are
 normalized in place to the bold form.
+
+Kapitel is a paste-ready YouTube chapter list: it always opens with
+"00:00 Äventyret börjar!", every Bryggpromenader entry becomes a chapter named
+"<Namn> tar en lång promenad på en kort brygga", and any note flagged with a
+'*' right after its timestamp in Kdenlive becomes a chapter (with the trailing
+speaker token like "-h" stripped from the title).
 
 Only script-managed lines are ever rewritten: the '* ' bullets of sections
 that have incoming notes, the Bryggpromenader tally, and the '* Kdenlive …'
@@ -62,9 +69,12 @@ def _version() -> str:
 
 ORPHAN_SECTION = 'Other comments without a home'
 BRYGG_SECTION = 'Bryggpromenader'
-STANDARD_SECTIONS = ['Noteworthy', ORPHAN_SECTION, BRYGG_SECTION]
+CHAPTER_SECTION = 'Kapitel'
+STANDARD_SECTIONS = ['Noteworthy', ORPHAN_SECTION, BRYGG_SECTION, CHAPTER_SECTION]
 METADATA_FIELDS = ['Titel', 'Blurb (large)', 'Blurb (short)', 'Trailer']
 TALLY_NAMES = [('J', 'Joel'), ('R', 'Robin'), ('H', 'Henrik'), ('K', 'Kenneth')]
+CHAPTER_OPENING = 'Äventyret börjar!'
+BRYGG_PHRASE = 'tar en lång promenad på en kort brygga'
 
 SOFTWARE_DEFAULTS = [
     '* Prism Launcher 9.2',
@@ -83,10 +93,17 @@ _META_FILLED_RE = re.compile(r'^\*\*(.+?):\*\*\s*\S')
 _TALLY_LINE_RE = re.compile(r'^(Joel|Robin|Henrik|Kenneth)\s*:')
 _TALLY_TOKEN_RE = re.compile(r'\b([JRHK])\s*\+\s*(\d+)', re.IGNORECASE)
 _KDENLIVE_LINE_RE = re.compile(r'^\*\s+Kdenlive\b')
+_CHAPTER_LINE_RE = re.compile(r'^\d{2}:\d{2}(:\d{2})?\s')
+_ATTRIBUTION_RE = re.compile(r'\s+-[a-zA-Z]+$')
 
 
 def _natural_key(name: str) -> list:
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', name)]
+
+
+def _strip_attribution(text: str) -> str:
+    """Drop a trailing speaker token like ' -h' from a note text."""
+    return _ATTRIBUTION_RE.sub('', text)
 
 
 # ── Kdenlive project extraction ───────────────────────────────────────────────
@@ -97,6 +114,7 @@ class _NotesParser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.sections: dict[str, list[tuple[str, str]]] = {}
+        self.chapters: list[tuple[str, str]] = []
         self._section: str | None = None
         self._in_a = False
         self._a_text = ''
@@ -130,6 +148,12 @@ class _NotesParser(HTMLParser):
                 self._section = name
                 self.sections.setdefault(name, [])
             else:
+                # A '*' right after the timestamp flags the note as a chapter.
+                if self._timestamp and text.startswith('*'):
+                    text = text.lstrip('*').strip()
+                    if not text:
+                        return
+                    self.chapters.append((self._timestamp, _strip_attribution(text)))
                 section = self._section if self._section is not None else ORPHAN_SECTION
                 self.sections.setdefault(section, []).append((self._timestamp or '', text))
 
@@ -149,8 +173,10 @@ def _ts_seconds(ts: str) -> float:
     return seconds
 
 
-def _extract_project(kdenlive_path: Path) -> tuple[dict[str, list[tuple[str, str]]], str | None]:
-    """Return ({section: [(timestamp, text)]}, kdenlive_version) from a .kdenlive file."""
+def _extract_project(
+    kdenlive_path: Path,
+) -> tuple[dict[str, list[tuple[str, str]]], list[tuple[str, str]], str | None]:
+    """Return (notes, starred_chapters, kdenlive_version) from a .kdenlive file."""
     root = ET.parse(kdenlive_path).getroot()
 
     version = None
@@ -159,6 +185,7 @@ def _extract_project(kdenlive_path: Path) -> tuple[dict[str, list[tuple[str, str
         version = vprop.text.strip()
 
     notes: dict[str, list[tuple[str, str]]] = {}
+    starred: list[tuple[str, str]] = []
     prop = root.find(".//property[@name='kdenlive:documentnotes']")
     if prop is not None and prop.text:
         parser = _NotesParser()
@@ -167,7 +194,8 @@ def _extract_project(kdenlive_path: Path) -> tuple[dict[str, list[tuple[str, str
             section: sorted(entries, key=lambda e: _ts_seconds(e[0]))
             for section, entries in parser.sections.items() if entries
         }
-    return notes, version
+        starred = sorted(parser.chapters, key=lambda c: _ts_seconds(c[0]))
+    return notes, starred, version
 
 
 # ── Markdown document model ───────────────────────────────────────────────────
@@ -384,6 +412,58 @@ def _set_bullets(section: _Block, bullets: list[str],
     section.lines = lines
 
 
+def _chapter_names(text: str) -> list[str]:
+    """Full names, in mention order, from the tally tokens in a note text."""
+    by_initial = {initial: full for initial, full in TALLY_NAMES}
+    names = []
+    for initial, _num in _TALLY_TOKEN_RE.findall(text):
+        full = by_initial[initial.upper()]
+        if full not in names:
+            names.append(full)
+    return names
+
+
+def _chapters(
+    notes: dict[str, list[tuple[str, str]]], starred: list[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    """Assemble the YouTube chapter list; empty when there are no real chapters."""
+    items = []
+    for ts, text in notes.get(BRYGG_SECTION, []):
+        names = _chapter_names(text)
+        if names and ts:
+            items.append((ts, f'{" och ".join(names)} {BRYGG_PHRASE}'))
+    items += [(ts, title) for ts, title in starred if ts]
+    if not items:
+        return []
+    items.append(('00:00', CHAPTER_OPENING))
+    return sorted(items, key=lambda c: _ts_seconds(c[0]))
+
+
+def _set_chapter_lines(section: _Block, items: list[tuple[str, str]]) -> None:
+    """Replace the managed chapter lines, keeping hand-written extras."""
+    extra = [
+        line for line in section.lines
+        if line.strip() and not _CHAPTER_LINE_RE.match(line)
+    ]
+    lines = [f'{ts} {title}\n' for ts, title in items]
+    if extra:
+        lines += ['\n'] + extra
+    lines.append('\n')
+    section.lines = lines
+
+
+def _prune_chapter_section(episode: _Block) -> None:
+    """Drop a Kapitel section that holds nothing but managed chapter lines."""
+    for i, child in enumerate(episode.children):
+        if child.title == CHAPTER_SECTION and not child.children:
+            if not any(
+                line.strip() and not _CHAPTER_LINE_RE.match(line)
+                for line in child.lines
+            ):
+                del episode.children[i]
+            return
+
+
 def _prune_orphan_section(episode: _Block, incoming_bullets: set[str]) -> None:
     """
     Drop a legacy 'Other comments without a home' section when it is empty or
@@ -465,6 +545,11 @@ def _print_report(root: _Block, episode_names: list[str]) -> None:
             for c in episode.children
             if any(line.startswith('* ') for line in c.lines)
         ]
+        for c in episode.children:
+            if c.title == CHAPTER_SECTION:
+                n = sum(1 for line in c.lines if _CHAPTER_LINE_RE.match(line))
+                if n:
+                    counts.append(f'{CHAPTER_SECTION} {n}')
         notes_txt = ', '.join(counts) if counts else 'no notes yet'
         if missing:
             print(f'    ✗ {name}: fill in {", ".join(missing)}  [{notes_txt}]')
@@ -504,7 +589,7 @@ def process_session(session_dir: Path, dry_run: bool = False) -> int:
         _prune_orphan_section(episode, set())
 
         try:
-            notes, version = _extract_project(ep_dir / f'{name}.kdenlive')
+            notes, starred, version = _extract_project(ep_dir / f'{name}.kdenlive')
         except (ET.ParseError, OSError) as exc:
             print(f'  {name}: WARNING - could not read project file ({exc})')
             warnings += 1
@@ -514,6 +599,10 @@ def process_session(session_dir: Path, dry_run: bool = False) -> int:
         orphans = notes.pop(ORPHAN_SECTION, [])
         orphan_bullets = [_bullet(e) for e in orphans]
         _prune_orphan_section(episode, set(orphan_bullets))
+
+        chapter_items = _chapters(notes, starred)
+        if not chapter_items:
+            _prune_chapter_section(episode)
 
         if notes or orphans:
             # Naked bullets directly under the episode heading are leftovers
@@ -532,9 +621,13 @@ def process_session(session_dir: Path, dry_run: bool = False) -> int:
                         bullets = orphan_bullets
                 tally = _tally(entries) if section_name == BRYGG_SECTION else None
                 _set_bullets(section, bullets, tally, appendix)
+            if chapter_items:
+                _set_chapter_lines(_ensure_section(episode, CHAPTER_SECTION), chapter_items)
             counts = {s: len(e) for s, e in notes.items()}
             if orphans:
                 counts['Noteworthy'] += len(orphans)
+            if chapter_items:
+                counts[CHAPTER_SECTION] = len(chapter_items)
             summary = ', '.join(f'{s} ({n})' for s, n in counts.items())
             print(f'  {name}: {summary}')
         else:

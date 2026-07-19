@@ -288,7 +288,8 @@ class ContentPreservationTests(unittest.TestCase):
                 + note('00:05:28:00', 'H+1')
                 + note('00:12:03:00', 'J+1')
             )
-            t.episode('avsnitt207', '<p>stray orphan</p>' + NOTEWORTHY + brygg)
+            starred = note('00:07:00:00', '* Kapitelgräns -j')
+            t.episode('avsnitt207', '<p>stray orphan</p>' + NOTEWORTHY + starred + brygg)
             first = t.run()
             second = t.run()
             self.assertEqual(first, second)
@@ -316,6 +317,87 @@ class BryggpromenadTests(unittest.TestCase):
             t.episode('avsnitt207', NOTEWORTHY)
             out = t.run()
             self.assertNotIn('#### Bryggpromenader', out)
+
+
+BRYGG = (
+    heading('Bryggpromenader')
+    + note('00:05:28:00', 'H+1')
+    + note('00:12:03:00', 'J+1 and K+1')
+)
+
+
+class ChapterTests(unittest.TestCase):
+
+    def test_starred_note_becomes_chapter_star_stripped_from_bullet(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            html = heading('Noteworthy') + note('00:06:29:32', '* Grottan öppnas -h')
+            t.episode('avsnitt207', html)
+            out = t.run()
+            self.assertIn('* 06:29 Grottan öppnas -h', out)
+            self.assertNotIn('* 06:29 * Grottan', out)
+            self.assertIn(
+                '#### Kapitel\n'
+                '00:00 Äventyret börjar!\n'
+                '06:29 Grottan öppnas\n',
+                out,
+            )
+
+    def test_brygg_entries_become_named_chapters_in_time_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            starred = note('00:06:29:32', '* Grottan öppnas -h')
+            t.episode('avsnitt207', NOTEWORTHY + starred + BRYGG)
+            out = t.run()
+            self.assertIn(
+                '#### Kapitel\n'
+                '00:00 Äventyret börjar!\n'
+                '05:28 Henrik tar en lång promenad på en kort brygga\n'
+                '06:29 Grottan öppnas\n'
+                '12:03 Joel och Kenneth tar en lång promenad på en kort brygga\n',
+                out,
+            )
+
+    def test_no_chapters_no_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', NOTEWORTHY)
+            out = t.run()
+            self.assertNotIn('#### Kapitel', out)
+
+    def test_stale_managed_only_kapitel_pruned(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', NOTEWORTHY)
+            t.md.write_text(
+                '# Session 26 - 2025-06-30\n\n'
+                '## Avsnittsinfo\n\n'
+                '### avsnitt207\n\n'
+                '**Titel:** X\n\n'
+                '#### Kapitel\n'
+                '00:00 Äventyret börjar!\n'
+                '03:00 Gammalt kapitel\n\n',
+                encoding='utf-8',
+            )
+            out = t.run()
+            self.assertNotIn('#### Kapitel', out)
+
+    def test_hand_written_line_in_kapitel_survives(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', NOTEWORTHY + BRYGG)
+            t.md.write_text(
+                '# Session 26 - 2025-06-30\n\n'
+                '## Avsnittsinfo\n\n'
+                '### avsnitt207\n\n'
+                '**Titel:** X\n\n'
+                '#### Kapitel\n'
+                'OBS: dubbelkolla kapitlen\n\n',
+                encoding='utf-8',
+            )
+            out = t.run()
+            self.assertIn('00:00 Äventyret börjar!', out)
+            self.assertIn('OBS: dubbelkolla kapitlen', out)
 
 
 class ExtractionTests(unittest.TestCase):

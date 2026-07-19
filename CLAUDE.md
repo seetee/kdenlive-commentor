@@ -37,6 +37,8 @@ The pipeline, all in `kdenlive_commentor.py`:
 
 5. **Managed updates** — `_set_bullets` rewrites a section's `* ` bullets (and the Bryggpromenader tally lines, auto-counted by `_tally` from `H+1`-style tokens); `_update_software` maintains the `* Kdenlive <version>` line. A per-episode release checklist is printed by `_print_report`.
 
+6. **Chapters** — a `*` typed directly after a note's timestamp in Kdenlive flags it as a YouTube chapter (`_NotesParser.chapters`; the `*` is stripped from the note, `_strip_attribution` drops trailing `-h`-style tokens from the title). `_chapters` assembles `#### Kapitel`: always opens `00:00 Äventyret börjar!`, one chapter per Bryggpromenader entry (`<names joined by 'och'> tar en lång promenad på en kort brygga` via `_chapter_names`), plus starred notes, time-sorted. Body lines are plain `MM:SS Title` (matched by `_CHAPTER_LINE_RE`, fully script-managed via `_set_chapter_lines`); the section exists only when there is ≥1 real chapter (`_prune_chapter_section` removes managed-only leftovers).
+
 ## Key invariants
 
 **Idempotency and non-destructiveness are the core contract**, and both are covered by tests — run the suite after any change to the merge logic. Rules:

@@ -32,6 +32,8 @@ On every run it:
 * keeps the `* Kdenlive …` line under `## Mjukvaruversioner` up to date with
   the version read from the project files;
 * auto-counts the **Bryggpromenader** tally from `H+1`-style notes;
+* builds a paste-ready **YouTube chapter list** (`#### Kapitel`) per episode
+  from the Bryggpromenader entries and any note you star (see below);
 * prints a per-episode release checklist so you instantly see what still needs
   filling in.
 
@@ -110,6 +112,12 @@ Joel: 1
 Robin: 0
 Henrik: 1
 Kenneth: 0
+
+#### Kapitel
+00:00 Äventyret börjar!
+05:28 Henrik tar en lång promenad på en kort brygga
+06:29 Grottan öppnas
+12:03 Joel tar en lång promenad på en kort brygga
 ```
 
 `Noteworthy` always exists for every episode; notes typed without a section
@@ -120,7 +128,25 @@ section you create with a heading in Kdenlive's Document Notes panel becomes
 an additional `####` section.
 
 Missing metadata fields and headings are added automatically; values you've
-already filled in are never touched.
+already filled in are never touched. Metadata lines written without bold
+markers (`Titel: …`) are normalized in place.
+
+### YouTube chapters
+
+The `#### Kapitel` section is a chapter list ready to paste into a YouTube
+description. It always opens with `00:00 Äventyret börjar!`, every
+Bryggpromenader entry becomes a chapter named after who walked the plank, and
+you can flag any other note as a chapter by typing a `*` directly after the
+timestamp in Kdenlive's Document Notes panel:
+
+```
+00:06:29:32* Grottan öppnas -h
+```
+
+The `*` is stripped from the note bullet, and the trailing speaker token
+(`-h`) is dropped from the chapter title. The section only appears when there
+is at least one real chapter. Note YouTube's rules: chapters are recognized
+only with at least 3 entries, the first at `00:00`, each ≥10 seconds long.
 
 ## Install
 
