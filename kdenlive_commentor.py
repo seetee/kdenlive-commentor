@@ -52,6 +52,7 @@ import difflib
 import os
 import re
 import sys
+from datetime import date
 from pathlib import Path
 from xml.etree import ElementTree as ET
 from html.parser import HTMLParser
@@ -540,19 +541,31 @@ def _print_report(root: _Block, episode_names: list[str]) -> None:
             continue
         filled = {m.group(1) for line in episode.lines if (m := _META_FILLED_RE.match(line))}
         missing = [f for f in METADATA_FIELDS if f not in filled]
+        issues = []
+        if missing:
+            issues.append(f'fill in {", ".join(missing)}')
+        for line in episode.lines:
+            m = re.match(r'^\*\*Titel:\*\*\s*(\S.*?)\s*$', line)
+            if m and len(m.group(1)) > 100:
+                issues.append(f'Titel too long ({len(m.group(1))}/100 chars)')
+                break
         counts = [
             f'{c.title} {sum(1 for line in c.lines if line.startswith("* "))}'
             for c in episode.children
             if any(line.startswith('* ') for line in c.lines)
         ]
-        for c in episode.children:
-            if c.title == CHAPTER_SECTION:
-                n = sum(1 for line in c.lines if _CHAPTER_LINE_RE.match(line))
-                if n:
-                    counts.append(f'{CHAPTER_SECTION} {n}')
+        chapter_count = next(
+            (sum(1 for line in c.lines if _CHAPTER_LINE_RE.match(line))
+             for c in episode.children if c.title == CHAPTER_SECTION),
+            0,
+        )
+        if chapter_count:
+            counts.append(f'{CHAPTER_SECTION} {chapter_count}')
+        if 0 < chapter_count < 3:
+            issues.append(f'only {chapter_count} chapters (YouTube needs 3+)')
         notes_txt = ', '.join(counts) if counts else 'no notes yet'
-        if missing:
-            print(f'    ✗ {name}: fill in {", ".join(missing)}  [{notes_txt}]')
+        if issues:
+            print(f'    ✗ {name}: {"; ".join(issues)}  [{notes_txt}]')
         else:
             print(f'    ✓ {name}: ready  [{notes_txt}]')
 
@@ -666,6 +679,54 @@ def process_session(session_dir: Path, dry_run: bool = False) -> int:
     return warnings
 
 
+def scaffold_session(start: Path) -> None:
+    """Create the next session directory: episode dirs, sources/, skeleton .md."""
+    root = start
+    for candidate in (start, *start.parents):
+        if _is_session_dir(candidate):
+            root = candidate.parent
+            break
+    sessions = [
+        d for d in root.iterdir()
+        if d.is_dir() and re.match(r'^session_\d+_', d.name)
+    ]
+    if not sessions:
+        sys.exit(f'error: no session_* directories in {root} to base the new session on')
+
+    latest = max(sessions, key=lambda d: _natural_key(d.name))
+    next_number = int(re.match(r'^session_(\d+)_', latest.name).group(1)) + 1
+    episode_numbers = [
+        int(m.group(1))
+        for s in sessions for d in s.iterdir()
+        if d.is_dir() and (m := re.match(r'^avsnitt(\d+)$', d.name))
+    ]
+    next_episode = max(episode_numbers, default=0) + 1
+    count = sum(
+        1 for d in latest.iterdir() if d.is_dir() and re.match(r'^avsnitt\d+$', d.name)
+    ) or 2
+
+    name = f'session_{next_number}_{date.today().isoformat()}'
+    session_dir = root / name
+    if session_dir.exists():
+        sys.exit(f'error: {session_dir} already exists')
+
+    episodes = [f'avsnitt{n}' for n in range(next_episode, next_episode + count)]
+    (session_dir / 'sources').mkdir(parents=True)
+    for episode in episodes:
+        (session_dir / episode).mkdir()
+
+    doc = _parse('')
+    software, info = _ensure_skeleton(doc, _session_title(name))
+    for episode in episodes:
+        block = _ensure_episode(doc, info, episode)
+        _ensure_section(block, 'Noteworthy')
+    _update_software(software, None)
+    _write_atomic(session_dir / f'{name}.md', _render(doc))
+
+    print(f'created {session_dir}')
+    print(f'  {", ".join(episodes)}, sources/, {name}.md')
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def _is_session_dir(path: Path) -> bool:
@@ -705,6 +766,11 @@ def main() -> None:
         help='show what would change as a diff, without writing anything',
     )
     ap.add_argument(
+        '--new',
+        action='store_true',
+        help='scaffold the next session directory (also: "kdenlive-commentor new")',
+    )
+    ap.add_argument(
         '--show',
         metavar='EPISODE',
         help="print an episode's metadata and notes from the session file, then exit",
@@ -712,9 +778,18 @@ def main() -> None:
     ap.add_argument('--version', action='version', version=f'%(prog)s {_version()}')
     args = ap.parse_args()
 
-    start = Path(args.directory).resolve()
+    directory = args.directory
+    if directory == 'new' and not Path('new').is_dir():
+        args.new = True
+        directory = '.'
+
+    start = Path(directory).resolve()
     if not start.is_dir():
         sys.exit(f'error: {start} is not a directory')
+
+    if args.new:
+        scaffold_session(start)
+        return
 
     sessions = _discover(start)
     if not sessions:

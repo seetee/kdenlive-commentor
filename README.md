@@ -173,15 +173,24 @@ kdenlive-commentor --dry-run
 
 # Print an episode's metadata and notes for copy-pasting, then exit
 kdenlive-commentor --show avsnitt207
+
+# Scaffold the next session (next number, today's date, next episode dirs)
+kdenlive-commentor new
 ```
 
-Each run ends with a release checklist:
+Each run ends with a release checklist that also flags YouTube pitfalls — a
+`Titel` over 100 characters (YouTube truncates), or a chapter list with fewer
+than 3 entries (YouTube ignores it):
 
 ```
   checklist:
-    ✗ avsnitt207: fill in Blurb (short)  [Noteworthy 12, Bryggpromenader 3]
-    ✓ avsnitt208: ready  [Noteworthy 8]
+    ✗ avsnitt207: fill in Blurb (short); Titel too long (112/100 chars)  [Noteworthy 12, Kapitel 5]
+    ✓ avsnitt208: ready  [Noteworthy 8, Kapitel 4]
 ```
+
+`kdenlive-commentor new` looks at your existing sessions and creates the next
+one: `session_27_<today>/` with `sources/`, the next `avsnittXXX` directories
+(as many as the previous session had), and a pre-filled skeleton `.md`.
 
 Safety details:
 

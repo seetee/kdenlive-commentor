@@ -538,6 +538,77 @@ class ShowTests(unittest.TestCase):
             self.assertFalse(kc._show_episode(t.dir, 'avsnitt999'))
 
 
+class LimitCheckTests(unittest.TestCase):
+
+    def test_long_titel_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', NOTEWORTHY)
+            long_title = 'x' * 120
+            t.md.write_text(
+                '# Session 26 - 2025-06-30\n\n'
+                '## Avsnittsinfo\n\n'
+                '### avsnitt207\n\n'
+                f'**Titel:** {long_title}\n\n',
+                encoding='utf-8',
+            )
+            t.run()
+            self.assertIn('Titel too long (120/100 chars)', t.stdout)
+
+    def test_too_few_chapters_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            starred = note('00:06:29:32', '* Grottan öppnas -h')
+            t.episode('avsnitt207', heading('Noteworthy') + starred)
+            t.run()  # 00:00 opener + 1 starred = 2 chapters
+            self.assertIn('only 2 chapters (YouTube needs 3+)', t.stdout)
+
+    def test_three_chapters_not_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            starred = note('00:06:29:32', '* Grottan öppnas -h')
+            t.episode('avsnitt207', heading('Noteworthy') + starred + BRYGG)
+            t.run()  # opener + starred + 2 brygg = 4 chapters
+            self.assertNotIn('YouTube needs 3+', t.stdout)
+
+
+class ScaffoldTests(unittest.TestCase):
+
+    def _scaffold(self, start):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            kc.scaffold_session(start)
+        return buf.getvalue()
+
+    def test_creates_next_session_from_parent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', NOTEWORTHY)
+            t.episode('avsnitt208', NOTEWORTHY)
+            self._scaffold(Path(tmp))
+            from datetime import date
+            new_dir = Path(tmp) / f'session_27_{date.today().isoformat()}'
+            self.assertTrue((new_dir / 'sources').is_dir())
+            self.assertTrue((new_dir / 'avsnitt209').is_dir())
+            self.assertTrue((new_dir / 'avsnitt210').is_dir())
+            self.assertFalse((new_dir / 'avsnitt211').exists())
+            md = (new_dir / f'{new_dir.name}.md').read_text(encoding='utf-8')
+            self.assertIn(f'# Session 27 - {date.today().isoformat()}', md)
+            self.assertIn('## Mjukvaruversioner', md)
+            self.assertIn('* Prism Launcher 9.2', md)
+            self.assertIn('### avsnitt209', md)
+            self.assertIn('### avsnitt210', md)
+            self.assertIn('**Titel:**', md)
+
+    def test_works_from_inside_session_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', NOTEWORTHY)
+            self._scaffold(t.dir)
+            from datetime import date
+            self.assertTrue((Path(tmp) / f'session_27_{date.today().isoformat()}').is_dir())
+
+
 class DiscoveryTests(unittest.TestCase):
 
     def test_walks_up_from_episode_dir(self):

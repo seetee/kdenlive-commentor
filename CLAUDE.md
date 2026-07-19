@@ -17,7 +17,10 @@ pipx run ruff check .                                # lint
 python3 kdenlive_commentor.py [dir]                  # run: session dir, parent dir, or bare from anywhere inside a session tree
 python3 kdenlive_commentor.py --dry-run              # diff preview, no writes
 python3 kdenlive_commentor.py --show avsnittXXX      # print one episode's section
+python3 kdenlive_commentor.py new                    # scaffold next session dir (also --new)
 ```
+
+The checklist flags YouTube pitfalls: Titel > 100 chars, chapter lists with < 3 entries. `scaffold_session` derives the next session/episode numbers from existing `session_*`/`avsnitt*` dirs and reuses the `_ensure_*` machinery for the skeleton `.md`.
 
 Exit code is 1 if any warning was printed (unreadable `.kdenlive`, stale `###` section with no matching directory). Real writes are atomic (`_write_atomic`) and preceded by a `<name>.md.bak` backup of the previous version.
 
