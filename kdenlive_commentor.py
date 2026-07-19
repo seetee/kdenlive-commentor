@@ -679,8 +679,21 @@ def process_session(session_dir: Path, dry_run: bool = False) -> int:
     return warnings
 
 
+def _prompt(question: str, default: str) -> str:
+    """Interactive prompt; falls back to the default when stdin is closed."""
+    try:
+        answer = input(question).strip()
+    except EOFError:
+        return default
+    return answer or default
+
+
 def scaffold_session(start: Path) -> None:
-    """Create the next session directory: episode dirs, sources/, skeleton .md."""
+    """
+    Create the next session directory: an avsnittXX<nr> placeholder episode
+    (episode numbers aren't known yet), sources/, kortisar/ (shorts/TikToks),
+    and a skeleton .md.  Asks for the recording date and software versions.
+    """
     root = start
     for candidate in (start, *start.parents):
         if _is_session_dir(candidate):
@@ -695,36 +708,47 @@ def scaffold_session(start: Path) -> None:
 
     latest = max(sessions, key=lambda d: _natural_key(d.name))
     next_number = int(re.match(r'^session_(\d+)_', latest.name).group(1)) + 1
-    episode_numbers = [
-        int(m.group(1))
-        for s in sessions for d in s.iterdir()
-        if d.is_dir() and (m := re.match(r'^avsnitt(\d+)$', d.name))
-    ]
-    next_episode = max(episode_numbers, default=0) + 1
-    count = sum(
-        1 for d in latest.iterdir() if d.is_dir() and re.match(r'^avsnitt\d+$', d.name)
-    ) or 2
 
-    name = f'session_{next_number}_{date.today().isoformat()}'
+    today = date.today().isoformat()
+    while True:
+        raw = _prompt(f'Recording date [{today}]: ', today)
+        try:
+            session_date = date.fromisoformat(raw).isoformat()
+            break
+        except ValueError:
+            print(f'  invalid date {raw!r} (expected YYYY-MM-DD)')
+
+    name = f'session_{next_number}_{session_date}'
     session_dir = root / name
     if session_dir.exists():
         sys.exit(f'error: {session_dir} already exists')
 
-    episodes = [f'avsnitt{n}' for n in range(next_episode, next_episode + count)]
+    print('Software versions (Enter keeps the value, type to replace):')
+    software_lines = []
+    for line in SOFTWARE_DEFAULTS:
+        indent = line[:len(line) - len(line.lstrip())]
+        text = line.lstrip()[2:]  # drop the '* ' bullet
+        software_lines.append(f'{indent}* {_prompt(f"  {text}: ", text)}')
+    while True:
+        extra = _prompt('  add more (empty to finish): ', '')
+        if not extra:
+            break
+        software_lines.append(f'* {extra}')
+
+    episode = f'avsnittXX{next_number}'
     (session_dir / 'sources').mkdir(parents=True)
-    for episode in episodes:
-        (session_dir / episode).mkdir()
+    (session_dir / 'kortisar').mkdir()
+    (session_dir / episode).mkdir()
 
     doc = _parse('')
     software, info = _ensure_skeleton(doc, _session_title(name))
-    for episode in episodes:
-        block = _ensure_episode(doc, info, episode)
-        _ensure_section(block, 'Noteworthy')
-    _update_software(software, None)
+    software.lines = ['\n'] + [f'{line}\n' for line in software_lines] + ['\n']
+    block = _ensure_episode(doc, info, episode)
+    _ensure_section(block, 'Noteworthy')
     _write_atomic(session_dir / f'{name}.md', _render(doc))
 
     print(f'created {session_dir}')
-    print(f'  {", ".join(episodes)}, sources/, {name}.md')
+    print(f'  {episode}/, kortisar/, sources/, {name}.md')
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

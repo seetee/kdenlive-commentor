@@ -174,7 +174,7 @@ kdenlive-commentor --dry-run
 # Print an episode's metadata and notes for copy-pasting, then exit
 kdenlive-commentor --show avsnitt207
 
-# Scaffold the next session (next number, today's date, next episode dirs)
+# Scaffold the next session (asks for date and software versions)
 kdenlive-commentor new
 ```
 
@@ -188,9 +188,13 @@ than 3 entries (YouTube ignores it):
     ✓ avsnitt208: ready  [Noteworthy 8, Kapitel 4]
 ```
 
-`kdenlive-commentor new` looks at your existing sessions and creates the next
-one: `session_27_<today>/` with `sources/`, the next `avsnittXXX` directories
-(as many as the previous session had), and a pre-filled skeleton `.md`.
+`kdenlive-commentor new` looks at your existing sessions and scaffolds the
+next one interactively: it asks for the recording date (Enter = today) and
+walks through the software versions (Enter keeps each value, type to replace,
+plus free extra lines). It then creates `session_<nr>_<date>/` containing
+`sources/`, `kortisar/` (for YouTube shorts and TikToks), a placeholder
+episode directory `avsnittXX<nr>` (the `XX` is a literal placeholder — rename
+it once the real episode number is known), and a pre-filled skeleton `.md`.
 
 Safety details:
 

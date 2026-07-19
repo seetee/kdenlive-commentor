@@ -20,7 +20,7 @@ python3 kdenlive_commentor.py --show avsnittXXX      # print one episode's secti
 python3 kdenlive_commentor.py new                    # scaffold next session dir (also --new)
 ```
 
-The checklist flags YouTube pitfalls: Titel > 100 chars, chapter lists with < 3 entries. `scaffold_session` derives the next session/episode numbers from existing `session_*`/`avsnitt*` dirs and reuses the `_ensure_*` machinery for the skeleton `.md`.
+The checklist flags YouTube pitfalls: Titel > 100 chars, chapter lists with < 3 entries. `scaffold_session` derives the next session number from existing `session_*` dirs, prompts interactively for the recording date and software versions (`_prompt` falls back to defaults on EOF, which is what the tests use), and creates `sources/`, `kortisar/` (shorts/TikToks), a placeholder episode dir `avsnittXX<nr>` (literal `XX` — episode numbers aren't known at scaffold time), and the skeleton `.md` via the `_ensure_*` machinery.
 
 Exit code is 1 if any warning was printed (unreadable `.kdenlive`, stale `###` section with no matching directory). Real writes are atomic (`_write_atomic`) and preceded by a `<name>.md.bak` backup of the previous version.
 
