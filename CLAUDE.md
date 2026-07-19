@@ -6,15 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A single-file Python tool (`kdenlive_commentor.py`) that extracts timestamped notes from Kdenlive project files (the `kdenlive:documentnotes` XML property) and merges them into a session Markdown file, repairing that file to a canonical skeleton on every run. Purpose-built for the **Samkväm** production workflow — it assumes the directory layout and session-file skeleton documented in README.md.
 
-Python 3.10+ standard library only. No dependencies, no build step.
+Python 3.10+ standard library only for the tool itself. Packaged via `pyproject.toml` (setuptools, console script `kdenlive-commentor`); CI (`.github/workflows/test.yml`) runs unittest on 3.10/3.13 plus `ruff check` (config in pyproject, line-length 100, E741 enforced — no single-letter `l`).
 
 ## Commands
 
 ```bash
 python3 -m unittest                                  # run the test suite
 python3 -m unittest tests.test_kdenlive_commentor.PlacementTests  # one test class
+pipx run ruff check .                                # lint
 python3 kdenlive_commentor.py [dir]                  # run: session dir, parent dir, or bare from anywhere inside a session tree
+python3 kdenlive_commentor.py --dry-run              # diff preview, no writes
+python3 kdenlive_commentor.py --show avsnittXXX      # print one episode's section
 ```
+
+Exit code is 1 if any warning was printed (unreadable `.kdenlive`, stale `###` section with no matching directory). Real writes are atomic (`_write_atomic`) and preceded by a `<name>.md.bak` backup of the previous version.
 
 Tests build synthetic `.kdenlive` fixtures in temp dirs (`SessionTree` helper in `tests/test_kdenlive_commentor.py`) — no committed fixture data.
 

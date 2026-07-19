@@ -57,10 +57,12 @@ class SessionTree:
     def md(self):
         return self.dir / f'{self.dir.name}.md'
 
-    def run(self):
-        with redirect_stdout(io.StringIO()):
-            kc.process_session(self.dir)
-        return self.md.read_text(encoding='utf-8')
+    def run(self, dry_run=False):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self.warnings = kc.process_session(self.dir, dry_run=dry_run)
+        self.stdout = buf.getvalue()
+        return self.md.read_text(encoding='utf-8') if self.md.exists() else ''
 
 
 class BootstrapTests(unittest.TestCase):
@@ -355,6 +357,103 @@ class ExtractionTests(unittest.TestCase):
             out = t.run()
             self.assertIn('### avsnitt208', out)
             self.assertIn('* 06:29 A memorable quote -h', out)
+
+
+PARTIAL_MD = (
+    '# Session 26 - 2025-06-30\n\n'
+    '## Avsnittsinfo\n\n'
+    '### avsnitt207\n\n'
+    '**Titel:** X\n'
+)
+
+
+class SafetyTests(unittest.TestCase):
+
+    def test_backup_contains_previous_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', NOTEWORTHY)
+            t.md.write_text(PARTIAL_MD, encoding='utf-8')
+            t.run()
+            bak = t.dir / (t.md.name + '.bak')
+            self.assertEqual(bak.read_text(encoding='utf-8'), PARTIAL_MD)
+            t.run()  # no-op run must not touch the backup
+            self.assertEqual(bak.read_text(encoding='utf-8'), PARTIAL_MD)
+
+    def test_no_backup_on_bootstrap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', NOTEWORTHY)
+            t.run()
+            self.assertFalse((t.dir / (t.md.name + '.bak')).exists())
+
+    def test_dry_run_prints_diff_without_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', NOTEWORTHY)
+            t.md.write_text(PARTIAL_MD, encoding='utf-8')
+            out = t.run(dry_run=True)
+            self.assertEqual(out, PARTIAL_MD)
+            self.assertIn('dry run', t.stdout)
+            self.assertIn('+#### Noteworthy', t.stdout)
+            self.assertFalse((t.dir / (t.md.name + '.bak')).exists())
+
+    def test_note_whitespace_collapsed_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            html = heading('Noteworthy') + note('00:06:29:32', 'first line\nsecond\tline')
+            t.episode('avsnitt207', html)
+            first = t.run()
+            self.assertIn('* 06:29 first line second line', first)
+            self.assertEqual(first, t.run())
+
+    def test_stale_section_warns_and_is_kept(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', NOTEWORTHY)
+            t.md.write_text(
+                '# Session 26 - 2025-06-30\n\n'
+                '## Avsnittsinfo\n\n'
+                '### avsnitt999\n\n'
+                '**Titel:** Gammal\n',
+                encoding='utf-8',
+            )
+            out = t.run()
+            self.assertIn('### avsnitt999', out)
+            self.assertIn('**Titel:** Gammal', out)
+            self.assertGreaterEqual(t.warnings, 1)
+            self.assertIn('no matching episode directory', t.stdout)
+
+    def test_parse_failure_counts_as_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', raw='<mlt><broken')
+            t.run()
+            self.assertEqual(t.warnings, 1)
+
+
+class ShowTests(unittest.TestCase):
+
+    def test_show_episode_prints_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', NOTEWORTHY)
+            t.run()
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                found = kc._show_episode(t.dir, 'avsnitt207')
+            self.assertTrue(found)
+            shown = buf.getvalue()
+            self.assertIn('### avsnitt207', shown)
+            self.assertIn('**Titel:**', shown)
+            self.assertIn('* 06:29 A memorable quote -h', shown)
+
+    def test_show_missing_episode_returns_false(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = SessionTree(tmp)
+            t.episode('avsnitt207', NOTEWORTHY)
+            t.run()
+            self.assertFalse(kc._show_episode(t.dir, 'avsnitt999'))
 
 
 class DiscoveryTests(unittest.TestCase):

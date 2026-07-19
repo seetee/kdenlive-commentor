@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kdenlive-commentor"
+version = "1.0.0"
+description = "Sync Kdenlive episode notes into the Samkväm session Markdown file"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "seetee" }]
+
+[project.urls]
+Repository = "https://github.com/seetee/kdenlive-commentor"
+
+[project.scripts]
+kdenlive-commentor = "kdenlive_commentor:main"
+
+[tool.setuptools]
+py-modules = ["kdenlive_commentor"]
+
+[tool.ruff]
+line-length = 100

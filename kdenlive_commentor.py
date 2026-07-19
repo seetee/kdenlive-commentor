@@ -40,12 +40,24 @@ version line.  Everything written by hand is preserved.  A per-episode
 completeness checklist is printed after each run.
 """
 
+import argparse
+import difflib
+import os
 import re
 import sys
-import argparse
 from pathlib import Path
 from xml.etree import ElementTree as ET
 from html.parser import HTMLParser
+
+__version__ = '1.0.0'
+
+
+def _version() -> str:
+    try:
+        from importlib.metadata import version
+        return version('kdenlive-commentor')
+    except Exception:
+        return __version__
 
 
 ORPHAN_SECTION = 'Other comments without a home'
@@ -107,7 +119,9 @@ class _NotesParser(HTMLParser):
                 h, mi, s = int(m.group(1)), int(m.group(2)), int(m.group(3))
                 self._timestamp = f'{h:02d}:{mi:02d}:{s:02d}' if h else f'{mi:02d}:{s:02d}'
         elif tag == 'p':
-            text = self._p_text.strip()
+            # Collapse internal whitespace: embedded newlines would otherwise
+            # produce lines the merge logic no longer recognizes as managed.
+            text = re.sub(r'\s+', ' ', self._p_text).strip()
             if not text:
                 return
             m = re.match(r'^#{1,6}\s+(.+)', text)
@@ -356,8 +370,8 @@ def _set_bullets(section: _Block, bullets: list[str],
                  appendix: list[str] | None = None) -> None:
     """Replace the managed lines of a section, keeping hand-written extras."""
     extra = [
-        l for l in section.lines
-        if l.strip() and not l.startswith('* ') and not _TALLY_LINE_RE.match(l)
+        line for line in section.lines
+        if line.strip() and not line.startswith('* ') and not _TALLY_LINE_RE.match(line)
     ]
     lines = [f'{b}\n' for b in bullets]
     if appendix:
@@ -379,8 +393,8 @@ def _prune_orphan_section(episode: _Block, incoming_bullets: set[str]) -> None:
     for i, child in enumerate(episode.children):
         if child.title == ORPHAN_SECTION and not child.children:
             leftover = [
-                l for l in child.lines
-                if l.strip() and l.strip() not in incoming_bullets
+                line for line in child.lines
+                if line.strip() and line.strip() not in incoming_bullets
             ]
             if not leftover:
                 del episode.children[i]
@@ -388,8 +402,8 @@ def _prune_orphan_section(episode: _Block, incoming_bullets: set[str]) -> None:
 
 
 def _update_software(software: _Block, version: str | None) -> None:
-    if not any(l.strip() for l in software.lines):
-        software.lines = ['\n'] + [f'{l}\n' for l in SOFTWARE_DEFAULTS]
+    if not any(line.strip() for line in software.lines):
+        software.lines = ['\n'] + [f'{line}\n' for line in SOFTWARE_DEFAULTS]
         if version:
             software.lines.append(f'* Kdenlive {version}\n')
         software.lines.append('\n')
@@ -408,17 +422,33 @@ def _update_software(software: _Block, version: str | None) -> None:
 
 # ── Session processing ────────────────────────────────────────────────────────
 
-def _find_or_create_md(session_dir: Path) -> Path:
+def _locate_session_file(session_dir: Path) -> tuple[Path, str]:
+    """Return (md_path, current_text); a session_*.txt is promoted on write."""
     md = next(iter(sorted(session_dir.glob('session_*.md'))), None)
     if md:
-        return md
+        return md, md.read_text(encoding='utf-8')
     txt = next(iter(sorted(session_dir.glob('session_*.txt'))), None)
     if txt:
-        md = txt.with_suffix('.md')
-        md.write_text(txt.read_text(encoding='utf-8'), encoding='utf-8')
-        print(f'  created {md.name} from {txt.name}')
-        return md
-    return session_dir / f'{session_dir.name}.md'
+        return txt.with_suffix('.md'), txt.read_text(encoding='utf-8')
+    return session_dir / f'{session_dir.name}.md', ''
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    tmp = path.with_name(path.name + '.tmp')
+    tmp.write_text(text, encoding='utf-8')
+    os.replace(tmp, path)
+
+
+def _show_episode(session_dir: Path, episode: str) -> bool:
+    """Print an episode's block from the session file; True if found."""
+    _, original = _locate_session_file(session_dir)
+    if not original:
+        return False
+    block = _find_block(_parse(original), 3, episode)
+    if block is None:
+        return False
+    print(_render(block).rstrip('\n'))
+    return True
 
 
 def _print_report(root: _Block, episode_names: list[str]) -> None:
@@ -428,12 +458,12 @@ def _print_report(root: _Block, episode_names: list[str]) -> None:
         if episode is None:
             print(f'    ✗ {name}: not in session file')
             continue
-        filled = {m.group(1) for l in episode.lines if (m := _META_FILLED_RE.match(l))}
+        filled = {m.group(1) for line in episode.lines if (m := _META_FILLED_RE.match(line))}
         missing = [f for f in METADATA_FIELDS if f not in filled]
         counts = [
-            f'{c.title} {sum(1 for l in c.lines if l.startswith("* "))}'
+            f'{c.title} {sum(1 for line in c.lines if line.startswith("* "))}'
             for c in episode.children
-            if any(l.startswith('* ') for l in c.lines)
+            if any(line.startswith('* ') for line in c.lines)
         ]
         notes_txt = ', '.join(counts) if counts else 'no notes yet'
         if missing:
@@ -442,8 +472,10 @@ def _print_report(root: _Block, episode_names: list[str]) -> None:
             print(f'    ✓ {name}: ready  [{notes_txt}]')
 
 
-def process_session(session_dir: Path) -> None:
+def process_session(session_dir: Path, dry_run: bool = False) -> int:
+    """Process one session directory; returns the number of warnings."""
     print(f'session: {session_dir.name}')
+    warnings = 0
 
     episode_dirs = sorted(
         (d for d in session_dir.iterdir()
@@ -452,10 +484,9 @@ def process_session(session_dir: Path) -> None:
     )
     if not episode_dirs:
         print('  no episode subdirectories found')
-        return
+        return warnings
 
-    md = _find_or_create_md(session_dir)
-    original = md.read_text(encoding='utf-8') if md.exists() else ''
+    md, original = _locate_session_file(session_dir)
     if original and not original.endswith('\n'):
         original += '\n'
 
@@ -476,6 +507,7 @@ def process_session(session_dir: Path) -> None:
             notes, version = _extract_project(ep_dir / f'{name}.kdenlive')
         except (ET.ParseError, OSError) as exc:
             print(f'  {name}: WARNING - could not read project file ({exc})')
+            warnings += 1
             continue
         kdenlive_version = version or kdenlive_version
 
@@ -486,7 +518,7 @@ def process_session(session_dir: Path) -> None:
         if notes or orphans:
             # Naked bullets directly under the episode heading are leftovers
             # from the pre-section format; the structured sections replace them.
-            episode.lines = [l for l in episode.lines if not l.startswith('* ')]
+            episode.lines = [line for line in episode.lines if not line.startswith('* ')]
             if orphans:
                 notes.setdefault('Noteworthy', [])
             for section_name, entries in notes.items():
@@ -510,14 +542,35 @@ def process_session(session_dir: Path) -> None:
 
     _update_software(software, kdenlive_version)
 
+    on_disk = set(episode_names)
+    for child in info.children:
+        if child.level == 3 and child.title not in on_disk:
+            print(f"  WARNING - section '### {child.title}' has no matching episode directory")
+            warnings += 1
+
     updated = _render(root)
-    if updated != original:
-        md.write_text(updated, encoding='utf-8')
-        print(f'  {"created" if not original else "updated"} {md.name}')
-    else:
+    if updated == original:
         print(f'  {md.name} already up to date')
+    elif dry_run:
+        print(f'  dry run - {md.name} would be {"updated" if md.exists() else "created"}:')
+        diff = difflib.unified_diff(
+            original.splitlines(keepends=True),
+            updated.splitlines(keepends=True),
+            fromfile=f'{md.name} (current)',
+            tofile=f'{md.name} (updated)',
+        )
+        for line in diff:
+            print('    ' + line.rstrip('\n'))
+    else:
+        created = not md.exists()
+        if not created:
+            md.with_name(md.name + '.bak').write_text(original, encoding='utf-8')
+        _write_atomic(md, updated)
+        note = '' if created else ' (previous version in .bak)'
+        print(f'  {"created" if created else "updated"} {md.name}{note}')
 
     _print_report(root, episode_names)
+    return warnings
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -553,6 +606,17 @@ def main() -> None:
         help='any directory inside a session tree, a session directory, or a '
              'parent of session_* directories (default: current directory)',
     )
+    ap.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='show what would change as a diff, without writing anything',
+    )
+    ap.add_argument(
+        '--show',
+        metavar='EPISODE',
+        help="print an episode's metadata and notes from the session file, then exit",
+    )
+    ap.add_argument('--version', action='version', version=f'%(prog)s {_version()}')
     args = ap.parse_args()
 
     start = Path(args.directory).resolve()
@@ -565,8 +629,15 @@ def main() -> None:
             f'error: {start} is not inside a session directory and contains '
             'no session_* directories'
         )
-    for session in sessions:
-        process_session(session)
+
+    if args.show:
+        if not any(_show_episode(s, args.show) for s in sessions):
+            sys.exit(f'error: episode {args.show!r} not found in any session file')
+        return
+
+    warnings = sum(process_session(s, dry_run=args.dry_run) for s in sessions)
+    if warnings:
+        sys.exit(1)
 
 
 if __name__ == '__main__':

@@ -1,5 +1,6 @@
 # kdenlive-commentor
 
+[![Tests](https://github.com/seetee/kdenlive-commentor/actions/workflows/test.yml/badge.svg)](https://github.com/seetee/kdenlive-commentor/actions/workflows/test.yml)
 [![Vibe Coded](https://img.shields.io/badge/vibe-coded-blueviolet)](https://en.wikipedia.org/wiki/Vibe_coding)
 [![Built with Claude](https://img.shields.io/badge/built%20with-Claude-D97757)](https://claude.ai)
 
@@ -121,17 +122,31 @@ an additional `####` section.
 Missing metadata fields and headings are added automatically; values you've
 already filled in are never touched.
 
+## Install
+
+```bash
+pipx install git+https://github.com/seetee/kdenlive-commentor.git
+```
+
+…or skip installing and run the script directly with `python3 kdenlive_commentor.py`.
+
 ## Usage
 
 ```bash
 # From anywhere inside a session tree — the session dir, an episode dir, deeper…
-python3 kdenlive_commentor.py
+kdenlive-commentor
 
 # …or point it at a session directory
-python3 kdenlive_commentor.py /path/to/session_26_2025-06-30/
+kdenlive-commentor /path/to/session_26_2025-06-30/
 
 # …or at a parent directory to process all sessions
-python3 kdenlive_commentor.py /path/to/recordings/
+kdenlive-commentor /path/to/recordings/
+
+# Preview what would change as a diff, without writing anything
+kdenlive-commentor --dry-run
+
+# Print an episode's metadata and notes for copy-pasting, then exit
+kdenlive-commentor --show avsnitt207
 ```
 
 Each run ends with a release checklist:
@@ -141,6 +156,15 @@ Each run ends with a release checklist:
     ✗ avsnitt207: fill in Blurb (short)  [Noteworthy 12, Bryggpromenader 3]
     ✓ avsnitt208: ready  [Noteworthy 8]
 ```
+
+Safety details:
+
+* Before the session file is modified, the previous version is saved next to it
+  as `<name>.md.bak`, and the write itself is atomic (a crash can never leave a
+  half-written file).
+* The exit code is non-zero when any warning was printed (unreadable project
+  file, or a `### avsnittXXX` section with no matching directory — e.g. after
+  renaming an episode folder).
 
 No external dependencies — just Python 3.10+ and its standard library.
 
